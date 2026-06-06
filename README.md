@@ -1,2 +1,1 @@
-# Smart-Glossary
-Smart Glossary
+Smart Glossary v1 architecture
