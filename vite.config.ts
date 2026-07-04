@@ -11,6 +11,10 @@ export default defineConfig({
           src: 'manifest.json',
           dest: '.',
         },
+        {
+          src: 'public/options/index.html',
+          dest: 'options',
+        },
       ],
     }),
   ],
@@ -20,7 +24,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         'background/context-menu': 'src/background/context-menu.ts',
-        'content/selection-handler': 'src/content/selection-handler.ts',
+        'content/index': 'src/content/index.ts',
+        'options/index': 'src/options/index.tsx',
       },
       output: {
         entryFileNames: '[name].js',

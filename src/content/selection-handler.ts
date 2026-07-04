@@ -1,17 +1,8 @@
-/**
- * Selection Handler
- * 
- * Handles text selection in the content script and communicates
- * with the background script for explanation requests.
- */
+import { ExplanationLoadingMessage, ExplanationResultMessage, ModalData, SelectionInfo } from '../shared/types';
 
-import { SelectionInfo, GetSelectionMessage, ExplanationResultMessage, OpenModalMessage } from '../shared/types';
+let isSelectionHandlerInitialized = false;
+const CONTEXT_RADIUS = 200;
 
-/**
- * Get current selection from the page
- * 
- * @returns Selection information or null if no selection
- */
 function getCurrentSelection(): SelectionInfo | null {
   const selection = window.getSelection();
   
@@ -25,89 +16,118 @@ function getCurrentSelection(): SelectionInfo | null {
     return null;
   }
   
+  const context = getSelectionContext(selection, text);
+
   return {
     text,
-    tabId: 0, // Will be set by background script
+    tabId: 0,
     frameId: 0,
     url: window.location.href,
+    contextBefore: context.before,
+    contextAfter: context.after,
     timestamp: Date.now(),
   };
 }
 
-/**
- * Handle GET_SELECTION message from background script
- * 
- * @param message - Message from background script
- * @param sender - Message sender information
- * @param sendResponse - Response callback
- */
-function handleGetSelection(
-  message: GetSelectionMessage,
-  sender: any,
-  sendResponse: (response: SelectionInfo | null) => void
-): void {
+function getSelectionContext(selection: Selection, selectedText: string): { before: string; after: string } {
+  if (selection.rangeCount === 0) {
+    return { before: '', after: '' };
+  }
+
+  const range = selection.getRangeAt(0);
+  const container = findContextElement(range.commonAncestorContainer);
+  const fullText = normalizeWhitespace(container.textContent || document.body.innerText || '');
+  const normalizedSelection = normalizeWhitespace(selectedText);
+  const selectionIndex = fullText.indexOf(normalizedSelection);
+
+  if (selectionIndex === -1) {
+    return { before: '', after: '' };
+  }
+
+  const beforeStart = Math.max(0, selectionIndex - CONTEXT_RADIUS);
+  const afterStart = selectionIndex + normalizedSelection.length;
+
+  return {
+    before: fullText.slice(beforeStart, selectionIndex),
+    after: fullText.slice(afterStart, afterStart + CONTEXT_RADIUS),
+  };
+}
+
+function findContextElement(node: Node): Element {
+  const element = node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement;
+  return element?.closest('p, li, article, section, main, div') || document.body;
+}
+
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function handleGetSelection(sendResponse: (response: SelectionInfo | null) => void): void {
   const selection = getCurrentSelection();
   sendResponse(selection);
 }
 
-/**
- * Handle EXPLANATION_RESULT message from background script
- * 
- * @param message - Message from background script
- * @param sender - Message sender information
- * @param sendResponse - Response callback
- */
-function handleExplanationResult(
-  message: ExplanationResultMessage,
-  sender: any,
+function handleExplanationLoading(
+  message: ExplanationLoadingMessage,
   sendResponse: () => void
 ): void {
-  // Open modal with explanation result
-  const openModalMessage: OpenModalMessage = {
-    type: 'OPEN_MODAL',
-    data: {
-      state: message.result.success ? 'success' : 'error',
-      result: message.result,
-      error: message.result.error,
-    },
+  const modalData: ModalData = {
+    state: 'loading',
+    term: message.term,
+  };
+
+  window.dispatchEvent(new CustomEvent('smart-glossary:open-modal', {
+    detail: modalData,
+  }));
+
+  sendResponse();
+}
+
+function handleExplanationResult(
+  message: ExplanationResultMessage,
+  sendResponse: () => void
+): void {
+  const modalData: ModalData = {
+    state: message.result.success ? 'success' : 'error',
+    term: message.result.term,
+    result: message.result,
+    error: message.result.error,
   };
   
-  // Dispatch event to UI component
   window.dispatchEvent(new CustomEvent('smart-glossary:open-modal', {
-    detail: openModalMessage,
+    detail: modalData,
   }));
   
   sendResponse();
 }
 
-/**
- * Set up message listeners
- */
 export function setupSelectionHandler(): void {
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (isSelectionHandlerInitialized) {
+    return;
+  }
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     switch (message.type) {
       case 'GET_SELECTION':
-        handleGetSelection(message, sender, sendResponse);
-        return true; // Keep message channel open for async response
+        handleGetSelection(sendResponse);
+        return false;
+
+      case 'EXPLANATION_LOADING':
+        handleExplanationLoading(message, sendResponse);
+        return false;
       
       case 'EXPLANATION_RESULT':
-        handleExplanationResult(message, sender, sendResponse);
-        return true;
+        handleExplanationResult(message, sendResponse);
+        return false;
       
       default:
-        sendResponse();
         return false;
     }
   });
+
+  isSelectionHandlerInitialized = true;
 }
 
-/**
- * Initialize selection handler
- */
 export function initializeSelectionHandler(): void {
   setupSelectionHandler();
-  console.log('Selection handler initialized');
 }
-
-// Auto-initialize when this module is loaded
-initializeSelectionHandler();

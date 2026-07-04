@@ -8,6 +8,8 @@
  * Explanation result from AI provider
  */
 export interface ExplanationResult {
+  /** Term that was explained */
+  term?: string;
   /** The explanation text */
   explanation: string;
   /** Provider that generated the explanation */
@@ -18,6 +20,13 @@ export interface ExplanationResult {
   success: boolean;
   /** Error message if failed */
   error?: string;
+}
+
+export interface ExplanationRequest {
+  term: string;
+  contextBefore?: string;
+  contextAfter?: string;
+  url?: string;
 }
 
 /**
@@ -32,6 +41,10 @@ export interface SelectionInfo {
   frameId: number;
   /** URL of the page */
   url: string;
+  /** Text near the selection before the selected text */
+  contextBefore?: string;
+  /** Text near the selection after the selected text */
+  contextAfter?: string;
   /** Timestamp of selection */
   timestamp: number;
 }
@@ -53,7 +66,7 @@ export interface AIProviderConfig {
 /**
  * Modal state
  */
-export type ModalState = 'idle' | 'loading' | 'success' | 'error';
+export type ModalState = 'loading' | 'success' | 'error';
 
 /**
  * Modal data
@@ -73,10 +86,8 @@ export interface ModalData {
  * Message types for extension communication
  */
 export type MessageType =
-  | 'EXPLAIN_SELECTION'
+  | 'EXPLANATION_LOADING'
   | 'EXPLANATION_RESULT'
-  | 'OPEN_MODAL'
-  | 'CLOSE_MODAL'
   | 'GET_SELECTION';
 
 /**
@@ -87,14 +98,6 @@ export interface BaseMessage {
 }
 
 /**
- * Explain selection message
- */
-export interface ExplainSelectionMessage extends BaseMessage {
-  type: 'EXPLAIN_SELECTION';
-  selection: SelectionInfo;
-}
-
-/**
  * Explanation result message
  */
 export interface ExplanationResultMessage extends BaseMessage {
@@ -102,19 +105,9 @@ export interface ExplanationResultMessage extends BaseMessage {
   result: ExplanationResult;
 }
 
-/**
- * Open modal message
- */
-export interface OpenModalMessage extends BaseMessage {
-  type: 'OPEN_MODAL';
-  data: ModalData;
-}
-
-/**
- * Close modal message
- */
-export interface CloseModalMessage extends BaseMessage {
-  type: 'CLOSE_MODAL';
+export interface ExplanationLoadingMessage extends BaseMessage {
+  type: 'EXPLANATION_LOADING';
+  term: string;
 }
 
 /**
@@ -128,8 +121,6 @@ export interface GetSelectionMessage extends BaseMessage {
  * Union of all message types
  */
 export type ExtensionMessage =
-  | ExplainSelectionMessage
+  | ExplanationLoadingMessage
   | ExplanationResultMessage
-  | OpenModalMessage
-  | CloseModalMessage
   | GetSelectionMessage;

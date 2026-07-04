@@ -5,7 +5,7 @@
  * Only sends selected text to AI, not entire page content.
  */
 
-import { ExplanationResult } from '../shared/types';
+import { ExplanationRequest, ExplanationResult } from '../shared/types';
 
 /**
  * AI provider configuration
@@ -31,7 +31,7 @@ export interface AIProvider {
    * @param term - Term to explain
    * @returns Promise with explanation result
    */
-  explain(term: string): Promise<ExplanationResult>;
+  explain(request: ExplanationRequest): Promise<ExplanationResult>;
   
   /**
    * Get provider name
@@ -45,11 +45,36 @@ export interface AIProvider {
  * Base prompt for explanation
  * Designed to produce 3-5 sentences, middle-school level, with examples, 100-200 characters
  */
-const EXPLANATION_PROMPT = `Explain the following term in 3-5 sentences that a middle school student can understand. Include a simple example. Keep the explanation between 100-200 characters.
+function buildExplanationPrompt(request: ExplanationRequest): string {
+  return `Explain the selected text using the surrounding page context.
 
-Term: "{term}"
+Selected text:
+${request.term}
 
-Explanation:`;
+Context before:
+${request.contextBefore || '(none)'}
+
+Context after:
+${request.contextAfter || '(none)'}
+
+Write for a student. Do not include greetings, introductions, or extra closing text.
+Always answer in this exact Markdown format:
+
+1. **One-line definition**
+   - ...
+
+2. **Easy explanation**
+   - ...
+
+3. **Meaning in this context**
+   - ...
+
+4. **Example sentence**
+   - ...
+
+5. **Related concepts or similar terms**
+   - ...`;
+}
 
 /**
  * OpenAI Provider Implementation
@@ -63,9 +88,9 @@ export class OpenAIProvider implements AIProvider {
     this.endpoint = config.endpoint || 'https://api.openai.com/v1/chat/completions';
   }
 
-  async explain(term: string): Promise<ExplanationResult> {
+  async explain(request: ExplanationRequest): Promise<ExplanationResult> {
     try {
-      const prompt = EXPLANATION_PROMPT.replace('{term}', term);
+      const prompt = buildExplanationPrompt(request);
       
       const response = await fetch(this.endpoint, {
         method: 'POST',
@@ -81,7 +106,7 @@ export class OpenAIProvider implements AIProvider {
               content: prompt,
             },
           ],
-          max_tokens: 200,
+          max_tokens: 700,
           temperature: 0.7,
         }),
       });
@@ -128,12 +153,13 @@ export class GeminiProvider implements AIProvider {
 
   constructor(config: AIProviderConfig) {
     this.config = config;
-    this.endpoint = config.endpoint || 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+    const model = config.model || 'gemini-pro';
+    this.endpoint = config.endpoint || `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
   }
 
-  async explain(term: string): Promise<ExplanationResult> {
+  async explain(request: ExplanationRequest): Promise<ExplanationResult> {
     try {
-      const prompt = EXPLANATION_PROMPT.replace('{term}', term);
+      const prompt = buildExplanationPrompt(request);
       
       const url = new URL(this.endpoint);
       url.searchParams.append('key', this.config.apiKey);
@@ -154,7 +180,7 @@ export class GeminiProvider implements AIProvider {
             },
           ],
           generationConfig: {
-            maxOutputTokens: 200,
+            maxOutputTokens: 700,
             temperature: 0.7,
           },
         }),
@@ -220,12 +246,23 @@ export class MockAIProvider implements AIProvider {
     this.delay = delay;
   }
 
-  async explain(term: string): Promise<ExplanationResult> {
-    // Simulate API delay
+  async explain(request: ExplanationRequest): Promise<ExplanationResult> {
     await new Promise(resolve => setTimeout(resolve, this.delay));
 
-    // Return mock explanation
-    const mockExplanation = `${term} is a concept used in technology. For example, when you use ${term.toLowerCase()}, you're applying this idea to solve a problem efficiently.`;
+    const mockExplanation = `1. **One-line definition**
+   - ${request.term} is an important idea or term in this passage.
+
+2. **Easy explanation**
+   - It means something the reader should understand before continuing.
+
+3. **Meaning in this context**
+   - Here, it connects to the surrounding sentence and helps explain the main point.
+
+4. **Example sentence**
+   - For example, "${request.term}" can be used to explain a concept clearly.
+
+5. **Related concepts or similar terms**
+   - Related ideas depend on the page context.`;
 
     return {
       explanation: mockExplanation,

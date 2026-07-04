@@ -1,42 +1,33 @@
-/**
- * Explanation Modal Component
- * 
- * React component for displaying AI explanations in an overlay modal.
- * Supports loading, success, and error states.
- * 
- * Features:
- * - ESC key to close
- * - Click outside to close
- * - Loading state
- * - Error state
- */
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createRoot, Root } from 'react-dom/client';
+import { ExplanationResult, ModalData } from '../shared/types';
 
-import React, { useEffect, useState, useCallback } from 'react';
-import { createRoot } from 'react-dom/client';
-import { ModalData, OpenModalMessage } from '../shared/types';
-
-/**
- * Modal component props
- */
 interface ExplanationModalProps {
-  /** Modal data */
   data: ModalData;
-  /** Close callback */
   onClose: () => void;
 }
 
-/**
- * Explanation Modal Component
- */
 export function ExplanationModal({ data, onClose }: ExplanationModalProps) {
   const [isVisible, setIsVisible] = useState(false);
+  const [copyStatus, setCopyStatus] = useState('');
+  const isClosingRef = useRef(false);
+  const termLabel = formatTermLabel(data.term);
+  const markdownHtml = useMemo(() => renderMarkdown(data.result?.explanation || ''), [data.result]);
 
   useEffect(() => {
-    // Animate in
     setIsVisible(true);
   }, []);
 
-  // Handle ESC key
+  const handleClose = useCallback(() => {
+    if (isClosingRef.current) {
+      return;
+    }
+
+    isClosingRef.current = true;
+    setIsVisible(false);
+    window.setTimeout(onClose, 180);
+  }, [onClose]);
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -46,21 +37,31 @@ export function ExplanationModal({ data, onClose }: ExplanationModalProps) {
 
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, []);
+  }, [handleClose]);
 
-  // Handle click outside
-  const handleBackdropClick = useCallback((e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      handleClose();
+  const handleBackdropClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.target === e.currentTarget) {
+        handleClose();
+      }
+    },
+    [handleClose]
+  );
+
+  const handleCopy = async () => {
+    const textToCopy = data.result?.explanation || data.error || '';
+    if (!textToCopy) {
+      return;
     }
-  }, []);
 
-  const handleClose = () => {
-    setIsVisible(false);
-    // Wait for animation to complete before calling onClose
-    setTimeout(() => {
-      onClose();
-    }, 200);
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setCopyStatus('Copied to clipboard.');
+    } catch {
+      setCopyStatus('Copy failed. Please try again.');
+    }
+
+    window.setTimeout(() => setCopyStatus(''), 2000);
   };
 
   return (
@@ -77,7 +78,7 @@ export function ExplanationModal({ data, onClose }: ExplanationModalProps) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 2147483647, // Maximum z-index
+        zIndex: 2147483647,
         opacity: isVisible ? 1 : 0,
         transition: 'opacity 200ms ease-in-out',
       }}
@@ -86,119 +87,120 @@ export function ExplanationModal({ data, onClose }: ExplanationModalProps) {
         className="smart-glossary-modal-content"
         style={{
           backgroundColor: 'white',
-          borderRadius: '12px',
+          borderRadius: '8px',
           padding: '24px',
-          maxWidth: '500px',
-          width: '90%',
-          maxHeight: '80vh',
+          maxWidth: '560px',
+          width: '92%',
+          maxHeight: '84vh',
           overflow: 'auto',
           boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
           transform: isVisible ? 'scale(1)' : 'scale(0.95)',
           transition: 'transform 200ms ease-in-out',
         }}
       >
-        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#1f2937' }}>
-            Smart Glossary
-          </h2>
-          <button
-            onClick={handleClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              fontSize: '24px',
-              cursor: 'pointer',
-              color: '#6b7280',
-              padding: '4px 8px',
-              lineHeight: 1,
-            }}
-            aria-label="Close"
-          >
-            ×
-          </button>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 600, color: '#111827' }}>
+              Smart Glossary
+            </h2>
+            {termLabel && (
+              <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: '13px', wordBreak: 'break-word' }}>
+                {termLabel}
+              </p>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={handleCopy}
+              style={{
+                backgroundColor: '#e5e7eb',
+                color: '#111827',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                cursor: 'pointer',
+                fontSize: '14px',
+              }}
+            >
+              Copy
+            </button>
+            <button
+              onClick={handleClose}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: '24px',
+                cursor: 'pointer',
+                color: '#6b7280',
+                padding: '4px 8px',
+                lineHeight: 1,
+              }}
+              aria-label="Close"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
-        {/* Content based on state */}
         {data.state === 'loading' && <LoadingState />}
-        {data.state === 'success' && data.result && <SuccessState result={data.result} />}
         {data.state === 'error' && <ErrorState error={data.error} />}
+        {data.state === 'success' && data.result && (
+          <SuccessState result={data.result} markdownHtml={markdownHtml} copyStatus={copyStatus} />
+        )}
       </div>
     </div>
   );
 }
 
-/**
- * Loading state component
- */
 function LoadingState() {
   return (
-    <div style={{ textAlign: 'center', padding: '40px 0' }}>
-      <div
-        style={{
-          border: '3px solid #f3f4f6',
-          borderTop: '3px solid #3b82f6',
-          borderRadius: '50%',
-          width: '40px',
-          height: '40px',
-          animation: 'spin 1s linear infinite',
-          margin: '0 auto 16px',
-        }}
-      />
-      <p style={{ margin: 0, color: '#6b7280', fontSize: '14px' }}>
-        Getting explanation...
-      </p>
-      <style>{`
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-      `}</style>
+    <div style={{ color: '#111827', fontSize: '16px', lineHeight: 1.75 }}>
+      <div style={{ marginBottom: '12px', fontWeight: 600 }}>설명 생성 중...</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ width: '18px', height: '18px', border: '3px solid #cbd5e1', borderTopColor: '#2563eb', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+        <span>잠시 기다려 주세요.</span>
+      </div>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
 
-/**
- * Success state component
- */
-function SuccessState({ result }: { result: any }) {
+function SuccessState({ result, markdownHtml, copyStatus }: { result: ExplanationResult; markdownHtml: string; copyStatus: string }) {
   return (
     <div>
-      <div style={{ marginBottom: '12px' }}>
+      <div style={{ marginBottom: '16px' }}>
         <span
           style={{
             display: 'inline-block',
-            padding: '4px 8px',
+            padding: '6px 10px',
             backgroundColor: '#dbeafe',
             color: '#1e40af',
-            borderRadius: '4px',
+            borderRadius: '9999px',
             fontSize: '12px',
-            fontWeight: '500',
+            fontWeight: 600,
           }}
         >
           {result.provider}
         </span>
       </div>
-      <p
+      <div
         style={{
-          margin: 0,
           color: '#374151',
-          fontSize: '16px',
-          lineHeight: '1.6',
+          fontSize: '15px',
+          lineHeight: '1.8',
+          wordBreak: 'break-word',
         }}
-      >
-        {result.explanation}
-      </p>
-      <div style={{ marginTop: '16px', fontSize: '12px', color: '#9ca3af' }}>
-        Generated at {new Date(result.timestamp).toLocaleTimeString()}
+        dangerouslySetInnerHTML={{ __html: markdownHtml }}
+      />
+      <div style={{ marginTop: '16px', fontSize: '12px', color: '#6b7280', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Generated at {new Date(result.timestamp).toLocaleTimeString()}</span>
+        {copyStatus && <span style={{ color: '#2563eb' }}>{copyStatus}</span>}
       </div>
     </div>
   );
 }
 
-/**
- * Error state component
- */
 function ErrorState({ error }: { error?: string }) {
   return (
     <div>
@@ -207,32 +209,93 @@ function ErrorState({ error }: { error?: string }) {
           backgroundColor: '#fef2f2',
           border: '1px solid #fecaca',
           borderRadius: '8px',
-          padding: '12px',
+          padding: '14px',
           marginBottom: '16px',
         }}
       >
-        <p style={{ margin: 0, color: '#991b1b', fontSize: '14px' }}>
+        <p style={{ margin: 0, color: '#991b1b', fontSize: '14px', lineHeight: '1.6' }}>
           {error || 'Failed to get explanation. Please try again.'}
         </p>
       </div>
-      <p style={{ margin: 0, color: '#6b7280', fontSize: '12px' }}>
-        Make sure your API key is configured in extension settings.
-      </p>
     </div>
   );
 }
 
-/**
- * Modal manager class
- * Handles mounting and unmounting the modal
- */
-class ModalManager {
-  private root: any = null;
-  private container: HTMLElement | null = null;
+function formatTermLabel(term?: string): string {
+  if (!term) {
+    return '';
+  }
 
-  /**
-   * Initialize modal container
-   */
+  return term.length > 160 ? `${term.slice(0, 160)}...` : term;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function renderMarkdown(markdown: string): string {
+  if (!markdown) {
+    return '<div style="color: #6b7280;">No explanation available.</div>';
+  }
+
+  let content = escapeHtml(markdown);
+
+  content = content.replace(/```([\s\S]*?)```/g, (_match, code) => {
+    return `<pre style="background:#f3f4f6;border-radius:8px;padding:12px;overflow-x:auto;"><code>${escapeHtml(code)}</code></pre>`;
+  });
+
+  content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  content = content.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  content = content.replace(/`([^`]+)`/g, '<code style="background:#f3f4f6;padding:2px 4px;border-radius:4px;">$1</code>');
+  content = content.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#2563eb;">$1</a>');
+
+  const lines = content.split('\n');
+  const blocks: string[] = [];
+  let inList = false;
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('- ')) {
+      if (!inList) {
+        inList = true;
+        blocks.push('<ul style="padding-left: 20px; margin: 0 0 12px;">');
+      }
+      blocks.push(`<li style="margin-bottom: 8px;">${trimmed.slice(2)}</li>`);
+      return;
+    }
+
+    if (inList) {
+      inList = false;
+      blocks.push('</ul>');
+    }
+
+    if (trimmed === '') {
+      blocks.push('<p style="margin: 0 0 12px;"></p>');
+      return;
+    }
+
+    blocks.push(`<p style="margin: 0 0 12px;">${trimmed}</p>`);
+  });
+
+  if (inList) {
+    blocks.push('</ul>');
+  }
+
+  return blocks.join('');
+}
+
+class ModalManager {
+  private root: Root | null = null;
+  private container: HTMLElement | null = null;
+  private isListenerRegistered = false;
+  private activeModalId = 0;
+
   initialize(): void {
     if (this.container) {
       return;
@@ -244,58 +307,56 @@ class ModalManager {
     this.root = createRoot(this.container);
   }
 
-  /**
-   * Show modal with data
-   */
   show(data: ModalData): void {
     this.initialize();
 
-    const handleClose = () => {
-      this.hide();
-    };
+    if (!this.root) {
+      return;
+    }
 
-    this.root.render(
-      <ExplanationModal data={data} onClose={handleClose} />
-    );
+    const modalId = ++this.activeModalId;
+    const handleClose = () => this.hide(modalId);
+
+    this.root.render(<ExplanationModal key={modalId} data={data} onClose={handleClose} />);
   }
 
-  /**
-   * Hide modal
-   */
-  hide(): void {
+  hide(modalId?: number): void {
+    if (modalId && modalId !== this.activeModalId) {
+      return;
+    }
+
     if (this.root) {
       this.root.unmount();
+      this.root = null;
     }
     if (this.container) {
       document.body.removeChild(this.container);
       this.container = null;
     }
+
+    this.activeModalId++;
+  }
+
+  registerListener(): void {
+    if (this.isListenerRegistered) {
+      return;
+    }
+
+    window.addEventListener('smart-glossary:open-modal', (event: Event) => {
+      const customEvent = event as CustomEvent<ModalData>;
+      modalManager.show(customEvent.detail);
+    });
+
+    this.isListenerRegistered = true;
   }
 }
 
-// Singleton instance
 const modalManager = new ModalManager();
 
-/**
- * Set up event listener for opening modal
- */
 export function setupModalListener(): void {
-  window.addEventListener('smart-glossary:open-modal', (event: any) => {
-    const message = event.detail as OpenModalMessage;
-    modalManager.show(message.data);
-  });
-
-  console.log('Modal listener initialized');
+  modalManager.registerListener();
 }
 
-/**
- * Initialize modal system
- */
 export function initializeModal(): void {
   setupModalListener();
-}
-
-// Auto-initialize when this module is loaded
-if (typeof window !== 'undefined') {
-  initializeModal();
 }
